@@ -483,7 +483,7 @@ networks.
 | Inference | Running an already-trained model. | Produces answers without changing the learned weights. |
 | Model | Architecture plus learned number tables. | Defines how input tokens become next-token predictions. |
 | Weight | A learned decimal number controlling how strongly one value affects another. | The model's learned behavior and knowledge are distributed across weights. |
-| Tensor | An array of numbers with a shape. A vector is 1D; a matrix is 2D. | Model weights and intermediate values are stored as tensors. |
+| Tensor | A collection of numbers plus its shape. Scalars, vectors, matrices, and higher-dimensional arrays are all tensors. | Gives the engine one common representation for weights, embeddings, hidden states, and logits. |
 | Token | A small text piece represented by an integer ID. | Neural networks work with numbers, not strings. |
 | Tokenizer | Translator between text and token IDs. | Prepares questions for the model and converts generated IDs back to text. |
 | Vocabulary | The complete list of tokens the model knows how to read and generate. | Every output logit corresponds to one vocabulary item. |

@@ -8,6 +8,10 @@ namespace SimpleLlmInference;
 /// </summary>
 internal sealed class GgufReader : IDisposable
 {
+    // A GGUF file begins with ASCII bytes "GGUF" (47 47 55 46).
+    // BinaryReader reads UInt32 values in little-endian order, so those bytes become 0x46554747.
+    private const uint GgufMagicNumber = 0x46554747;
+
     private readonly FileStream _stream;
     private readonly BinaryReader _reader;
     private readonly Dictionary<string, object> _metadata = [];
@@ -36,55 +40,13 @@ internal sealed class GgufReader : IDisposable
     public string[] Strings(string key) => (string[])_metadata[key];
 
     /// <summary>
-    /// Loads one named tensor and converts its numbers to ordinary C# <see cref="float"/> values.
-    ///
-    /// Layman version: the GGUF header tells us where each giant number table starts. We jump
-    /// to that location, read every number, and remember the result so later requests do not
-    /// read it again. FP16 uses two bytes per number; we expand it to the easier four-byte float.
-    /// </summary>
-    public Tensor Tensor(string name)
-    {
-        if (_loaded.TryGetValue(name, out var loaded))
-        {
-            return loaded;
-        }
-
-        var info = _tensors[name];
-        _stream.Position = _tensorDataStart + info.Offset;
-        var count = info.Dimensions.Aggregate(1L, (total, size) => total * size);
-        var data = new float[checked((int)count)];
-
-        if (info.Type == 0)
-        {
-            for (var i = 0; i < data.Length; i++)
-            {
-                data[i] = _reader.ReadSingle();
-            }
-        }
-        else if (info.Type == 1)
-        {
-            for (var i = 0; i < data.Length; i++)
-            {
-                data[i] = (float)BitConverter.UInt16BitsToHalf(_reader.ReadUInt16());
-            }
-        }
-        else
-        {
-            throw new NotSupportedException(
-                $"Tensor '{name}' uses GGML type {info.Type}. This educational engine supports only FP32 and FP16.");
-        }
-
-        return _loaded[name] = new Tensor(data, info.Dimensions);
-    }
-
-    /// <summary>
     /// Reads the GGUF table of contents: file version, general settings, tensor names, shapes,
     /// number formats, and byte offsets. It does not yet read the large tensor values.
     /// </summary>
     private void ReadHeader()
     {
-        // "GGUF" written as four bytes is the file signature that identifies the format.
-        if (_reader.ReadUInt32() != 0x46554747)
+        // Reject unrelated or damaged files before interpreting the remaining bytes as GGUF data.
+        if (_reader.ReadUInt32() != GgufMagicNumber)
         {
             throw new InvalidDataException("The file is not GGUF.");
         }
@@ -127,6 +89,48 @@ internal sealed class GgufReader : IDisposable
             ? Convert.ToInt32(value)
             : 32;
         _tensorDataStart = Align(_stream.Position, alignment);
+    }
+
+    /// <summary>
+    /// Loads one named tensor and converts its numbers to ordinary C# <see cref="float"/> values.
+    ///
+    /// Layman version: the GGUF header tells us where each giant number table starts. We jump
+    /// to that location, read every number, and remember the result so later requests do not
+    /// read it again. FP16 uses two bytes per number; we expand it to the easier four-byte float.
+    /// </summary>
+    public Tensor Tensor(string name)
+    {
+        if (_loaded.TryGetValue(name, out var loaded))
+        {
+            return loaded;
+        }
+
+        var info = _tensors[name];
+        _stream.Position = _tensorDataStart + info.Offset;
+        var count = info.Dimensions.Aggregate(1L, (total, size) => total * size);
+        var data = new float[checked((int)count)];
+
+        if (info.Type == 0)
+        {
+            for (var i = 0; i < data.Length; i++)
+            {
+                data[i] = _reader.ReadSingle();
+            }
+        }
+        else if (info.Type == 1)
+        {
+            for (var i = 0; i < data.Length; i++)
+            {
+                data[i] = (float)BitConverter.UInt16BitsToHalf(_reader.ReadUInt16());
+            }
+        }
+        else
+        {
+            throw new NotSupportedException(
+                $"Tensor '{name}' uses GGML type {info.Type}. This educational engine supports only FP32 and FP16.");
+        }
+
+        return _loaded[name] = new Tensor(data, info.Dimensions);
     }
 
     /// <summary>
