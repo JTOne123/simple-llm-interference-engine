@@ -3,7 +3,10 @@ using System.Text.RegularExpressions;
 
 namespace SimpleLlmInference;
 
-/// <summary>Qwen's byte-level BPE tokenizer, implemented with ordinary dictionaries and loops.</summary>
+/// <summary>
+/// Qwen's byte-level BPE tokenizer, implemented with ordinary dictionaries and loops.
+/// A tokenizer is the translator between human text and the integer IDs understood by the model.
+/// </summary>
 internal sealed partial class QwenTokenizer
 {
     private readonly string[] _tokens;
@@ -12,10 +15,19 @@ internal sealed partial class QwenTokenizer
     private readonly char[] _byteEncoder = new char[256];
     private readonly Dictionary<char, byte> _byteDecoder = [];
 
+    /// <summary>The token that means "the generated text is finished".</summary>
     public int EndTokenId { get; }
+
+    /// <summary>The special token that marks the beginning of a chat message.</summary>
     public int ImStartTokenId => _tokenIds["<|im_start|>"];
+
+    /// <summary>The special token that marks the end of a chat message.</summary>
     public int ImEndTokenId => _tokenIds["<|im_end|>"];
 
+    /// <summary>
+    /// Loads the vocabulary (token text to token ID), BPE merge priorities, and special IDs
+    /// stored inside the GGUF model.
+    /// </summary>
     public QwenTokenizer(GgufReader gguf)
     {
         _tokens = gguf.Strings("tokenizer.ggml.tokens");
@@ -28,7 +40,13 @@ internal sealed partial class QwenTokenizer
         BuildByteMaps();
     }
 
-    /// <summary>Wraps a question in Qwen's simple system/user/assistant chat format.</summary>
+    /// <summary>
+    /// Wraps a question in Qwen's expected chat format and converts it to token IDs.
+    ///
+    /// Layman version: an instruction model was trained on labelled messages, not bare questions.
+    /// We therefore send "system says...", "user says...", then open an empty "assistant says..."
+    /// message. The model continues that final message with its answer.
+    /// </summary>
     public List<int> EncodeChat(string question)
     {
         var result = new List<int>();
@@ -39,7 +57,10 @@ internal sealed partial class QwenTokenizer
         return result;
     }
 
-    /// <summary>Converts generated token IDs back into readable UTF-8 text.</summary>
+    /// <summary>
+    /// Converts generated token IDs back into readable UTF-8 text.
+    /// Tokens are first joined into Qwen's byte-safe character form, then changed back to bytes.
+    /// </summary>
     public string Decode(IEnumerable<int> tokenIds)
     {
         var encoded = string.Concat(tokenIds.Select(id => _tokens[id]));
@@ -56,6 +77,10 @@ internal sealed partial class QwenTokenizer
         return Encoding.UTF8.GetString(bytes.ToArray());
     }
 
+    /// <summary>
+    /// Adds one labelled chat message: start marker, role, text, end marker, and newline.
+    /// Keeping this exact format matters because it matches the examples Qwen learned from.
+    /// </summary>
     private void AddMessage(List<int> result, string role, string text)
     {
         result.Add(ImStartTokenId);
@@ -64,6 +89,10 @@ internal sealed partial class QwenTokenizer
         result.AddRange(EncodeOrdinary("\n"));
     }
 
+    /// <summary>
+    /// Converts normal text to token IDs in two stages:
+    /// first split text into word-like chunks, then apply BPE merges inside each chunk.
+    /// </summary>
     private IEnumerable<int> EncodeOrdinary(string text)
     {
         foreach (Match match in TokenPattern().Matches(text))
@@ -76,6 +105,13 @@ internal sealed partial class QwenTokenizer
         }
     }
 
+    /// <summary>
+    /// Repeatedly joins the most preferred neighboring pieces according to Qwen's merge table.
+    ///
+    /// Layman example: a word starts as individual characters. If "K y" has a better learned
+    /// rank than other pairs, it becomes "Ky"; later "Ky i" may become "Kyi". The process stops
+    /// when no known neighboring pair remains. The final pieces are vocabulary tokens.
+    /// </summary>
     private List<string> ApplyBpe(string word)
     {
         var pieces = word.Select(character => character.ToString()).ToList();
@@ -123,6 +159,12 @@ internal sealed partial class QwenTokenizer
         return pieces;
     }
 
+    /// <summary>
+    /// Builds a reversible mapping for all 256 possible byte values.
+    ///
+    /// BPE works with text-like strings, but arbitrary UTF-8 bytes are not all printable.
+    /// This mapping gives every byte a safe character representation without losing information.
+    /// </summary>
     private void BuildByteMaps()
     {
         var visible = Enumerable.Range('!', '~' - '!' + 1)
@@ -139,6 +181,10 @@ internal sealed partial class QwenTokenizer
         }
     }
 
+    /// <summary>
+    /// Defines Qwen's first-pass text chunks: contractions, words, numbers, punctuation,
+    /// and whitespace. BPE merging is performed separately inside each matched chunk.
+    /// </summary>
     [GeneratedRegex(@"'(?:s|t|re|ve|m|ll|d)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+")]
     private static partial Regex TokenPattern();
 }

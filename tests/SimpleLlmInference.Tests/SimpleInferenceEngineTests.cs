@@ -6,9 +6,13 @@ namespace SimpleLlmInference.Tests;
 public sealed class SimpleInferenceEngineTests
 {
     private const string ModelPath =
-        @"D:\LLMModels\qwen2.5-0.5b-instruct-fp16.gguf";
+        @"D:\LLMModels\qwen2.5-0.5b-instruct-fp16.gguf"; //https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-fp16.gguf
 
-    [TestMethod]
+	/// <summary>
+	/// Demonstrates the two most important softmax properties: probabilities total one,
+	/// and a larger original score remains a larger probability.
+	/// </summary>
+	[TestMethod]
     public void SoftmaxProducesOrderedProbabilitiesThatSumToOne()
     {
         float[] values = [1, 2, 3];
@@ -19,6 +23,7 @@ public sealed class SimpleInferenceEngineTests
         Assert.IsTrue(values[2] > values[1] && values[1] > values[0]);
     }
 
+    /// <summary>Checks that a bad path fails clearly instead of producing a mysterious answer.</summary>
     [TestMethod]
     public void MissingModelIsRejected()
     {
@@ -26,6 +31,10 @@ public sealed class SimpleInferenceEngineTests
             () => new SimpleInferenceEngine("missing-model.gguf"));
     }
 
+    /// <summary>
+    /// Loads and executes the real model, proving that GGUF reading, tokenization, attention,
+    /// feed-forward math, logits, and decoding work together from end to end.
+    /// </summary>
     [TestMethod]
     [TestCategory("Integration")]
     public async Task AnswersCapitalOfUkraine()

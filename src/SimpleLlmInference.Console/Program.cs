@@ -1,7 +1,7 @@
 ﻿using SimpleLlmInference;
 
 const string defaultModelPath =
-    @"D:\LLMModels\qwen2.5-0.5b-instruct-fp16.gguf";
+    @"D:\LLMModels\qwen2.5-0.5b-instruct-fp16.gguf"; //https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-fp16.gguf
 
 var modelPath = args.FirstOrDefault() ?? defaultModelPath;
 var question = args.Skip(1).FirstOrDefault() ?? "What is the capital of Ukraine?";

@@ -2,7 +2,10 @@ using System.Text;
 
 namespace SimpleLlmInference;
 
-/// <summary>Reads metadata and FP16/FP32 tensors from one GGUF file.</summary>
+/// <summary>
+/// Reads metadata and FP16/FP32 tensors from one GGUF file.
+/// GGUF is a container: its header describes the model and its large data section stores weights.
+/// </summary>
 internal sealed class GgufReader : IDisposable
 {
     private readonly FileStream _stream;
@@ -12,6 +15,10 @@ internal sealed class GgufReader : IDisposable
     private readonly Dictionary<string, Tensor> _loaded = [];
     private long _tensorDataStart;
 
+    /// <summary>
+    /// Opens the model file and reads only its table of contents.
+    /// The large tensors are loaded later, when <see cref="Tensor"/> is called.
+    /// </summary>
     public GgufReader(string path)
     {
         _stream = File.OpenRead(path);
@@ -19,11 +26,22 @@ internal sealed class GgufReader : IDisposable
         ReadHeader();
     }
 
+    /// <summary>Reads an integer model setting, such as the number of transformer layers.</summary>
     public int Int(string key) => Convert.ToInt32(_metadata[key]);
+
+    /// <summary>Reads a decimal model setting, such as the small RMSNorm epsilon value.</summary>
     public float Float(string key) => Convert.ToSingle(_metadata[key]);
+
+    /// <summary>Reads a list of strings, such as tokenizer vocabulary pieces or merge rules.</summary>
     public string[] Strings(string key) => (string[])_metadata[key];
 
-    /// <summary>Loads a tensor and converts simple FP16 values to ordinary C# floats.</summary>
+    /// <summary>
+    /// Loads one named tensor and converts its numbers to ordinary C# <see cref="float"/> values.
+    ///
+    /// Layman version: the GGUF header tells us where each giant number table starts. We jump
+    /// to that location, read every number, and remember the result so later requests do not
+    /// read it again. FP16 uses two bytes per number; we expand it to the easier four-byte float.
+    /// </summary>
     public Tensor Tensor(string name)
     {
         if (_loaded.TryGetValue(name, out var loaded))
@@ -59,8 +77,13 @@ internal sealed class GgufReader : IDisposable
         return _loaded[name] = new Tensor(data, info.Dimensions);
     }
 
+    /// <summary>
+    /// Reads the GGUF table of contents: file version, general settings, tensor names, shapes,
+    /// number formats, and byte offsets. It does not yet read the large tensor values.
+    /// </summary>
     private void ReadHeader()
     {
+        // "GGUF" written as four bytes is the file signature that identifies the format.
         if (_reader.ReadUInt32() != 0x46554747)
         {
             throw new InvalidDataException("The file is not GGUF.");
@@ -75,6 +98,7 @@ internal sealed class GgufReader : IDisposable
         var tensorCount = _reader.ReadUInt64();
         var metadataCount = _reader.ReadUInt64();
 
+        // Metadata contains small descriptive values: architecture, layer count, tokenizer, etc.
         for (ulong i = 0; i < metadataCount; i++)
         {
             var key = ReadString();
@@ -82,6 +106,7 @@ internal sealed class GgufReader : IDisposable
             _metadata[key] = ReadValue(type);
         }
 
+        // Tensor descriptors tell us the shape and file location of every learned weight table.
         for (ulong i = 0; i < tensorCount; i++)
         {
             var name = ReadString();
@@ -104,6 +129,10 @@ internal sealed class GgufReader : IDisposable
         _tensorDataStart = Align(_stream.Position, alignment);
     }
 
+    /// <summary>
+    /// Reads one metadata value according to the numeric GGUF type code stored before it.
+    /// This is similar to reading a JSON value after learning whether it is a number or string.
+    /// </summary>
     private object ReadValue(uint type) => type switch
     {
         0 => _reader.ReadByte(),
@@ -122,6 +151,10 @@ internal sealed class GgufReader : IDisposable
         _ => throw new NotSupportedException($"Unknown GGUF metadata type {type}.")
     };
 
+    /// <summary>
+    /// Reads a GGUF metadata array. Token lists are string arrays; other rare arrays are kept
+    /// as general object arrays because this small engine does not need stronger types for them.
+    /// </summary>
     private object ReadArray()
     {
         var elementType = _reader.ReadUInt32();
@@ -145,15 +178,23 @@ internal sealed class GgufReader : IDisposable
         return values;
     }
 
+    /// <summary>
+    /// Reads a GGUF string, which is stored as an eight-byte length followed by UTF-8 bytes.
+    /// </summary>
     private string ReadString()
     {
         var length = checked((int)_reader.ReadUInt64());
         return Encoding.UTF8.GetString(_reader.ReadBytes(length));
     }
 
+    /// <summary>
+    /// Moves a byte position to the next required boundary.
+    /// GGUF pads sections so tensors begin at clean, predictable addresses.
+    /// </summary>
     private static long Align(long value, int alignment) =>
         (value + alignment - 1) / alignment * alignment;
 
+    /// <summary>Closes the binary reader and the underlying model file.</summary>
     public void Dispose()
     {
         _reader.Dispose();
