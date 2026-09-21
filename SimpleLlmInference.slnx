@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SimpleLlmInference.Console/SimpleLlmInference.Console.csproj" />
+    <Project Path="src/SimpleLlmInference/SimpleLlmInference.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SimpleLlmInference.Tests/SimpleLlmInference.Tests.csproj" />
+  </Folder>
+</Solution>
