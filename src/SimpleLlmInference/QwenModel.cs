@@ -45,18 +45,30 @@ internal sealed class QwenModel
             // Every transformer block has the same kinds of weights, but learned values differ.
             var prefix = $"blk.{layer}.";
             _layers[layer] = new Layer(
-                gguf.Tensor(prefix + "attn_norm.weight"),
-                gguf.Tensor(prefix + "attn_q.weight"),
-                gguf.Tensor(prefix + "attn_q.bias"),
-                gguf.Tensor(prefix + "attn_k.weight"),
-                gguf.Tensor(prefix + "attn_k.bias"),
-                gguf.Tensor(prefix + "attn_v.weight"),
-                gguf.Tensor(prefix + "attn_v.bias"),
-                gguf.Tensor(prefix + "attn_output.weight"),
-                gguf.Tensor(prefix + "ffn_norm.weight"),
-                gguf.Tensor(prefix + "ffn_gate.weight"),
-                gguf.Tensor(prefix + "ffn_up.weight"),
-                gguf.Tensor(prefix + "ffn_down.weight"));
+                // Stabilizes values so attention scores do not become too large or too small.
+                AttentionNorm: gguf.Tensor(prefix + "attn_norm.weight"),
+                // Creates "What am I looking for?" so this token can find relevant earlier tokens.
+                Query: gguf.Tensor(prefix + "attn_q.weight"),
+                // Fine-tunes each query value so searching is not limited to matrix mixing alone.
+                QueryBias: gguf.Tensor(prefix + "attn_q.bias"),
+                // Creates "What do I contain?" labels that queries can compare against.
+                Key: gguf.Tensor(prefix + "attn_k.weight"),
+                // Fine-tunes each key value so tokens can advertise their information accurately.
+                KeyBias: gguf.Tensor(prefix + "attn_k.bias"),
+                // Creates the content to retrieve when attention decides this token is relevant.
+                Value: gguf.Tensor(prefix + "attn_v.weight"),
+                // Fine-tunes retrieved content instead of relying only on matrix multiplication.
+                ValueBias: gguf.Tensor(prefix + "attn_v.bias"),
+                // Merges attention-head results into hidden size so they can rejoin the main state.
+                AttentionOutput: gguf.Tensor(prefix + "attn_output.weight"),
+                // Stabilizes values so the feed-forward network receives a predictable scale.
+                FeedForwardNorm: gguf.Tensor(prefix + "ffn_norm.weight"),
+                // Opens useful features and suppresses irrelevant ones before they affect the state.
+                FeedForwardGate: gguf.Tensor(prefix + "ffn_gate.weight"),
+                // Expands the vector to give the model room to recognize more complex features.
+                FeedForwardUp: gguf.Tensor(prefix + "ffn_up.weight"),
+                // Returns features to hidden size so they can be added through the residual path.
+                FeedForwardDown: gguf.Tensor(prefix + "ffn_down.weight"));
         }
     }
 
@@ -230,6 +242,42 @@ internal sealed class QwenModel
     /// Holds all learned tensors belonging to one transformer block.
     /// This record has no behavior; it simply gives descriptive names to the weight tables.
     /// </summary>
+    /// <param name="AttentionNorm">
+    /// Stabilizes hidden values so attention scores remain numerically well behaved.
+    /// </param>
+    /// <param name="Query">
+    /// Describes what this token needs so it can find relevant earlier tokens.
+    /// </param>
+    /// <param name="QueryBias">
+    /// Fine-tunes query values beyond what matrix multiplication can express alone.
+    /// </param>
+    /// <param name="Key">
+    /// Describes what each token contains so queries have searchable labels to compare.
+    /// </param>
+    /// <param name="KeyBias">
+    /// Fine-tunes key values so tokens can advertise their information accurately.
+    /// </param>
+    /// <param name="Value">
+    /// Creates the content attention retrieves after deciding that a token is relevant.
+    /// </param>
+    /// <param name="ValueBias">
+    /// Fine-tunes the retrieved content beyond the value matrix calculation.
+    /// </param>
+    /// <param name="AttentionOutput">
+    /// Merges attention-head results into hidden size so they can rejoin the main state.
+    /// </param>
+    /// <param name="FeedForwardNorm">
+    /// Stabilizes values so the feed-forward network receives a predictable input scale.
+    /// </param>
+    /// <param name="FeedForwardGate">
+    /// Allows useful generated features through while suppressing irrelevant features.
+    /// </param>
+    /// <param name="FeedForwardUp">
+    /// Creates a wider feature space so the layer can recognize more complex patterns.
+    /// </param>
+    /// <param name="FeedForwardDown">
+    /// Returns features to hidden size so they can be added through the residual connection.
+    /// </param>
     private sealed record Layer(
         Tensor AttentionNorm,
         Tensor Query,
